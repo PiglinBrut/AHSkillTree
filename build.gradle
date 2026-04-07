@@ -116,6 +116,9 @@ configurations {
 
 dependencies {
     implementation "io.redspace.ironsspellbooks:irons_spellbooks-1.21.1-3.12.1"
+    implementation "software.bernie.geckolib:geckolib-neoforge-1.21.1-4.7.5.1"
+    implementation "dev.kosmx.playerAnim:player-animation-lib-forge-2.0.1+1.21.1"
+    implementation "top.theillusivec4.curios:curios-neoforge-9.5.1+1.21.1"
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
     // compileOnly "mezz.jei:jei-${mc_version}-common-api:${jei_version}"
