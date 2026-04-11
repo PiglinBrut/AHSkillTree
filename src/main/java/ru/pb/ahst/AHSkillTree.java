@@ -12,7 +12,11 @@ import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
+import ru.pb.ahst.command.SkillDebugCommand;
+import ru.pb.ahst.config.SkillConfig;
+import ru.pb.ahst.data.SkillDataAttachments;
 import ru.pb.ahst.registry.ItemRegistry;
+import ru.pb.ahst.registry.NetworkRegistry;
 
 // The value here should match an entry in the META-INF/neoforge.mods.toml file
 @Mod(AHSkillTree.MOD_ID)
@@ -26,11 +30,18 @@ public class AHSkillTree {
 
         modEventBus.addListener(this::addCreative);
 
+        //modEventBus.addListener(NetworkRegistry::register);
+
         ItemRegistry.register(modEventBus);
+
+        SkillDataAttachments.ATTACHMENT_TYPES.register(modEventBus);
     }
 
     private void commonSetup(FMLCommonSetupEvent event) {
-
+        event.enqueueWork(() -> {
+            // Инициализируем конфиг при загрузке
+            SkillConfig.init(net.neoforged.fml.loading.FMLPaths.CONFIGDIR.get());
+        });
     }
 
     // Add the example block item to the building blocks tab
@@ -45,5 +56,6 @@ public class AHSkillTree {
     public void onServerStarting(ServerStartingEvent event) {
         // Do something when the server starts
         LOGGER.info("HELLO from server starting");
+        SkillDebugCommand.register(event.getServer().getCommands().getDispatcher());
     }
 }

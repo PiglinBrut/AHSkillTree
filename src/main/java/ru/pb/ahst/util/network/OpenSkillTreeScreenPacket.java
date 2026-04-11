@@ -12,15 +12,18 @@ import ru.pb.ahst.util.tools.SkillManuscript;
 
 public class OpenSkillTreeScreenPacket implements CustomPacketPayload {
     private final InteractionHand hand;
-    public static final Type<OpenSkillTreeScreenPacket> TYPE = new Type(ResourceLocation.fromNamespaceAndPath(AHSkillTree.MOD_ID, "open_skill_tree_screen"));
-    public static final StreamCodec<RegistryFriendlyByteBuf, OpenSkillTreeScreenPacket> STREAM_CODEC = CustomPacketPayload.codec(OpenSkillTreeScreenPacket::write, OpenSkillTreeScreenPacket::new);
+    public static final Type<OpenSkillTreeScreenPacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(AHSkillTree.MOD_ID, "open_skill_tree_screen"));
+    public static final StreamCodec<RegistryFriendlyByteBuf, OpenSkillTreeScreenPacket> STREAM_CODEC = StreamCodec.ofMember(
+            OpenSkillTreeScreenPacket::write,
+            OpenSkillTreeScreenPacket::new
+    );
 
     public OpenSkillTreeScreenPacket(InteractionHand pHand) {
         this.hand = pHand;
     }
 
     public OpenSkillTreeScreenPacket(FriendlyByteBuf buf) {
-        this.hand = (InteractionHand)buf.readEnum(InteractionHand.class);
+        this.hand = buf.readEnum(InteractionHand.class);
     }
 
     public void write(FriendlyByteBuf buf) {
@@ -31,6 +34,7 @@ public class OpenSkillTreeScreenPacket implements CustomPacketPayload {
         context.enqueueWork(() -> SkillManuscript.openSkillTreeScreen(packet.hand));
     }
 
+    @Override
     public Type<? extends CustomPacketPayload> type() {
         return TYPE;
     }
