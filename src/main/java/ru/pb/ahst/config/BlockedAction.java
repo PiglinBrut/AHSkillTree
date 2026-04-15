@@ -9,6 +9,6 @@ public enum BlockedAction {
     BREAK_BLOCK_BY_ITEM,        // Разрушение блоков с помощью предметов
     INTERACT_BLOCK,             // Взаимодействие с уже установленным блоком (открытие GUI)
     UNPREPAREDNESS_FOR_WEAPON,  // Штрафы при использовании
-    EQUIP_ARMOR,                // Полная блокировка надевания
-    UNPREPAREDNESS_FOR_ARMOR    // Штрафы при ношении
+    EQUIP_ARMOR,                // Полная блокировка надевания брони
+    UNPREPAREDNESS_FOR_ARMOR    // Штрафы при ношении брони
 }
