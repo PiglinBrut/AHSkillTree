@@ -26,6 +26,7 @@ import net.neoforged.neoforge.event.entity.player.AttackEntityEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.level.BlockEvent;
+import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import ru.pb.ahst.AHSkillTree;
 import ru.pb.ahst.config.BaseAttributesConfig;
 import ru.pb.ahst.config.BlockedAction;
@@ -80,19 +81,19 @@ public class SkillEffectsEvents {
         updateArmorPenalties(event.getEntity());
     }
 
-//    @SubscribeEvent
-//    public static void onEquipmentChange(LivingEquipmentChangeEvent event) {
-//        if (event.getEntity() instanceof Player player && !player.level().isClientSide) {
-//            applyEffects(player);
-//        }
-//    }
-
     @SubscribeEvent
     public static void onPlayerClone(PlayerEvent.Clone event) {
         if (event.getEntity() instanceof ServerPlayer original && event.getOriginal() instanceof ServerPlayer originalPlayer) {
             if (originalPlayer.getPersistentData().contains("ah_attributes_applied")) {
                 original.getPersistentData().putBoolean("ah_attributes_applied", true);
             }
+        }
+    }
+
+    @SubscribeEvent
+    public static void onPlayerTick(PlayerTickEvent.Post event) {
+        if (!event.getEntity().level().isClientSide && event.getEntity() instanceof Player player) {
+            SkillEffectsManager.updateConditionalEffects(player);
         }
     }
 

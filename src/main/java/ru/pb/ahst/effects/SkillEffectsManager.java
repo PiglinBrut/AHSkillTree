@@ -4,6 +4,7 @@ import net.minecraft.core.Holder;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.TagKey;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
@@ -35,10 +36,13 @@ public class SkillEffectsManager {
             BlockedAction.INTERACT_BLOCK
     );
 
+    private static final Map<UUID, Map<String, List<AttributeModifier>>> ACTIVE_CONDITIONAL_MODIFIERS = new HashMap<>();
+
     public static void applyAllSkillEffects(Player player, PlayerSkillData skillData) {
         if (player == null) return;
 
         clearAllSkillModifiers(player);
+        clearAllConditionalModifiers(player);
 
         ItemRestrictionsConfig.clearTempRestrictions();
 
@@ -138,6 +142,110 @@ public class SkillEffectsManager {
                 }
             }
         }
+    }
+
+    public static void updateConditionalEffects(Player player) {
+        if (player == null || player.level().isClientSide) return;
+
+        PlayerSkillData skillData = player.getData(SkillDataAttachments.PLAYER_SKILL_DATA);
+        ConditionContext context = new ConditionContext(player, getCurrentTarget(player));
+
+        Map<String, List<AttributeModifier>> activeModifiers = ACTIVE_CONDITIONAL_MODIFIERS
+                .computeIfAbsent(player.getUUID(), k -> new HashMap<>());
+
+        for (String skillId : skillData.getLearnedSkills()) {
+            SkillEffectsConfig.SkillEffects effects = SkillEffectsConfig.getEffects(skillId);
+
+            for (SkillEffectsConfig.ConditionalEffect condEffect : effects.conditionalEffects) {
+                boolean conditionMet = condEffect.condition.test(context);
+                String key = skillId + "_" + condEffect.hashCode();
+
+                if (conditionMet) {
+                    // Применяем эффекты если условие выполнено и они еще не активны
+                    if (!activeModifiers.containsKey(key)) {
+                        List<AttributeModifier> appliedModifiers = applyConditionalEffects(player, condEffect, skillId);
+                        activeModifiers.put(key, appliedModifiers);
+                    }
+                } else {
+                    // Удаляем эффекты если условие не выполнено
+                    if (activeModifiers.containsKey(key)) {
+                        removeConditionalEffects(player, activeModifiers.get(key));
+                        activeModifiers.remove(key);
+                    }
+                }
+            }
+        }
+    }
+
+    private static List<AttributeModifier> applyConditionalEffects(Player player,
+                                                                   SkillEffectsConfig.ConditionalEffect condEffect, String skillId) {
+        List<AttributeModifier> appliedModifiers = new ArrayList<>();
+
+        for (SkillEffectsConfig.AttributeBonus bonus : condEffect.attributeBonuses) {
+            Optional<Holder.Reference<Attribute>> holder = BuiltInRegistries.ATTRIBUTE.getHolder(bonus.attribute);
+            if (holder.isPresent()) {
+                AttributeInstance instance = player.getAttribute(holder.get());
+                if (instance != null) {
+                    AttributeModifier modifier = new AttributeModifier(
+                            ResourceLocation.fromNamespaceAndPath(AHSkillTree.MOD_ID,
+                                    "conditional_" + bonus.name + "_" + UUID.randomUUID()),
+                            bonus.amount,
+                            bonus.operation
+                    );
+                    instance.addPermanentModifier(modifier);
+                    appliedModifiers.add(modifier);
+                }
+            }
+        }
+
+        for (SkillEffectsConfig.AttributeMultiplier mult : condEffect.attributeMultipliers) {
+            Optional<Holder.Reference<Attribute>> holder = BuiltInRegistries.ATTRIBUTE.getHolder(mult.attribute);
+            if (holder.isPresent()) {
+                AttributeInstance instance = player.getAttribute(holder.get());
+                if (instance != null) {
+                    double bonus = mult.multiplier - 1.0;
+                    AttributeModifier modifier = new AttributeModifier(
+                            ResourceLocation.fromNamespaceAndPath(AHSkillTree.MOD_ID,
+                                    "conditional_mult_" + skillId + "_" + mult.attribute.getPath() + "_" + UUID.randomUUID()),
+                            bonus,
+                            AttributeModifier.Operation.ADD_MULTIPLIED_BASE
+                    );
+                    instance.addPermanentModifier(modifier);
+                    appliedModifiers.add(modifier);
+                }
+            }
+        }
+
+        return appliedModifiers;
+    }
+
+    private static void removeConditionalEffects(Player player, List<AttributeModifier> modifiers) {
+        for (AttributeModifier modifier : modifiers) {
+            for (Holder.Reference<Attribute> holder : BuiltInRegistries.ATTRIBUTE.holders().toList()) {
+                AttributeInstance instance = player.getAttribute(holder);
+                if (instance != null && instance.getModifier(modifier.id()) != null) {
+                    instance.removeModifier(modifier.id());
+                }
+            }
+        }
+    }
+
+    private static void clearAllConditionalModifiers(Player player) {
+        if (player == null) return;
+
+        Map<String, List<AttributeModifier>> activeModifiers = ACTIVE_CONDITIONAL_MODIFIERS.remove(player.getUUID());
+        if (activeModifiers != null) {
+            for (List<AttributeModifier> modifiers : activeModifiers.values()) {
+                removeConditionalEffects(player, modifiers);
+            }
+        }
+    }
+
+    private static LivingEntity getCurrentTarget(Player player) {
+        if (player.getLastHurtMob() instanceof LivingEntity living && living.isAlive()) {
+            return living;
+        }
+        return null;
     }
 
     public static boolean isItemActionAllowed(Player player, ItemStack stack, BlockedAction action) {

@@ -8,8 +8,10 @@ import net.minecraft.tags.ItemTags;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.enchantment.ConditionalEffect;
 import net.minecraft.world.level.block.Block;
 import ru.pb.ahst.AHSkillTree;
+import ru.pb.ahst.effects.ConditionContext;
 
 import java.io.*;
 import java.nio.file.Files;
@@ -88,6 +90,18 @@ public class SkillEffectsConfig {
                                 ResourceLocation.parse(attributeId),
                                 multiplier
                         ));
+                    }
+                }
+
+                // Условные эффекты
+                if (obj.has("conditional_effects")) {
+                    JsonArray conditionalArray = obj.getAsJsonArray("conditional_effects");
+                    for (JsonElement condElem : conditionalArray) {
+                        JsonObject condObj = condElem.getAsJsonObject();
+                        ConditionalEffect condEffect = parseConditionalEffect(condObj, skillId);
+                        if (condEffect != null) {
+                            effects.conditionalEffects.add(condEffect);
+                        }
                     }
                 }
 
@@ -226,9 +240,264 @@ public class SkillEffectsConfig {
         return SKILL_EFFECTS.getOrDefault(skillId, new SkillEffects());
     }
 
+
+
+    private static AttributeModifier.Operation parseOperation(String operationStr) {
+        try {
+            return AttributeModifier.Operation.valueOf(operationStr);
+        } catch (IllegalArgumentException e) {
+            return switch (operationStr.toUpperCase()) {
+                case "ADDITION" -> AttributeModifier.Operation.ADD_VALUE;
+                case "MULTIPLY_BASE" -> AttributeModifier.Operation.ADD_MULTIPLIED_BASE;
+                case "MULTIPLY_TOTAL" -> AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL;
+                default -> AttributeModifier.Operation.ADD_VALUE;
+            };
+        }
+    }
+
+    private static ConditionalEffect parseConditionalEffect(JsonObject condObj, String skillId) {
+        JsonObject conditionObj = condObj.getAsJsonObject("condition");
+        if (conditionObj == null) return null;
+
+        String type = conditionObj.get("type").getAsString();
+        Condition condition = switch (type) {
+            case "health_percentage" -> {
+                double min = conditionObj.has("min") ? conditionObj.get("min").getAsDouble() : 0;
+                double max = conditionObj.has("max") ? conditionObj.get("max").getAsDouble() : 100;
+                yield new HealthPercentageCondition(min, max);
+            }
+            case "health_absolute" -> {
+                double min = conditionObj.has("min") ? conditionObj.get("min").getAsDouble() : 0;
+                double max = conditionObj.has("max") ? conditionObj.get("max").getAsDouble() : Double.MAX_VALUE;
+                yield new HealthAbsoluteCondition(min, max);
+            }
+            case "food_percentage" -> {
+                double min = conditionObj.has("min") ? conditionObj.get("min").getAsDouble() : 0;
+                double max = conditionObj.has("max") ? conditionObj.get("max").getAsDouble() : 100;
+                yield new FoodPercentageCondition(min, max);
+            }
+            case "food_absolute" -> {
+                int min = conditionObj.has("min") ? conditionObj.get("min").getAsInt() : 0;
+                int max = conditionObj.has("max") ? conditionObj.get("max").getAsInt() : 20;
+                yield new FoodAbsoluteCondition(min, max);
+            }
+            case "on_fire" -> new OnFireCondition();
+            case "sprinting" -> new SprintingCondition();
+            case "in_water" -> new InWaterCondition();
+            case "in_lava" -> new InLavaCondition();
+            case "time_of_day" -> {
+                long min = conditionObj.has("min") ? conditionObj.get("min").getAsLong() : 0;
+                long max = conditionObj.has("max") ? conditionObj.get("max").getAsLong() : 24000;
+                yield new TimeOfDayCondition(min, max);
+            }
+            case "experience_levels" -> {
+                int min = conditionObj.has("min") ? conditionObj.get("min").getAsInt() : 0;
+                int max = conditionObj.has("max") ? conditionObj.get("max").getAsInt() : Integer.MAX_VALUE;
+                yield new ExperienceLevelsCondition(min, max);
+            }
+            case "distance_to_target" -> {
+                double min = conditionObj.has("min") ? conditionObj.get("min").getAsDouble() : 0;
+                double max = conditionObj.has("max") ? conditionObj.get("max").getAsDouble() : Double.MAX_VALUE;
+                yield new DistanceToTargetCondition(min, max);
+            }
+            default -> {
+                AHSkillTree.LOGGER.warn("Unknown condition type: {}", type);
+                yield null;
+            }
+        };
+
+        if (condition == null) return null;
+
+        ConditionalEffect effect = new ConditionalEffect(condition);
+
+        if (condObj.has("attribute_bonuses")) {
+            JsonArray bonuses = condObj.getAsJsonArray("attribute_bonuses");
+            for (JsonElement bonusElem : bonuses) {
+                JsonObject bonusObj = bonusElem.getAsJsonObject();
+                String attributeId = bonusObj.get("attribute").getAsString();
+                String operationStr = bonusObj.get("operation").getAsString();
+                double amount = bonusObj.get("amount").getAsDouble();
+                String name = bonusObj.has("name") ? bonusObj.get("name").getAsString() : skillId + "_conditional_bonus";
+
+                effect.attributeBonuses.add(new AttributeBonus(
+                        ResourceLocation.parse(attributeId),
+                        parseOperation(operationStr),
+                        amount,
+                        name
+                ));
+            }
+        }
+
+        if (condObj.has("attribute_multipliers")) {
+            JsonArray multipliers = condObj.getAsJsonArray("attribute_multipliers");
+            for (JsonElement multElem : multipliers) {
+                JsonObject multObj = multElem.getAsJsonObject();
+                String attributeId = multObj.get("attribute").getAsString();
+                double multiplier = multObj.get("multiplier").getAsDouble();
+
+                effect.attributeMultipliers.add(new AttributeMultiplier(
+                        ResourceLocation.parse(attributeId),
+                        multiplier
+                ));
+            }
+        }
+
+        return effect;
+    }
+
+    public interface Condition {
+        boolean test(ConditionContext context);
+    }
+
+    public static class HealthPercentageCondition implements Condition {
+        public final double min;
+        public final double max;
+
+        public HealthPercentageCondition(double min, double max) {
+            this.min = min;
+            this.max = max;
+        }
+
+        @Override
+        public boolean test(ConditionContext context) {
+            float percentage = context.player.getHealth() / context.player.getMaxHealth() * 100;
+            return percentage >= min && percentage <= max;
+        }
+    }
+
+    public static class HealthAbsoluteCondition implements Condition {
+        public final double min;
+        public final double max;
+
+        public HealthAbsoluteCondition(double min, double max) {
+            this.min = min;
+            this.max = max;
+        }
+
+        @Override
+        public boolean test(ConditionContext context) {
+            float health = context.player.getHealth();
+            return health >= min && health <= max;
+        }
+    }
+
+    public static class FoodPercentageCondition implements Condition {
+        public final double min;
+        public final double max;
+
+        public FoodPercentageCondition(double min, double max) {
+            this.min = min;
+            this.max = max;
+        }
+
+        @Override
+        public boolean test(ConditionContext context) {
+            float percentage = context.player.getFoodData().getFoodLevel() / 20f * 100;
+            return percentage >= min && percentage <= max;
+        }
+    }
+
+    public static class FoodAbsoluteCondition implements Condition {
+        public final int min;
+        public final int max;
+
+        public FoodAbsoluteCondition(int min, int max) {
+            this.min = min;
+            this.max = max;
+        }
+
+        @Override
+        public boolean test(ConditionContext context) {
+            int food = context.player.getFoodData().getFoodLevel();
+            return food >= min && food <= max;
+        }
+    }
+
+    public static class OnFireCondition implements Condition {
+        @Override
+        public boolean test(ConditionContext context) {
+            return context.player.isOnFire();
+        }
+    }
+
+    public static class SprintingCondition implements Condition {
+        @Override
+        public boolean test(ConditionContext context) {
+            return context.player.isSprinting();
+        }
+    }
+
+    public static class InWaterCondition implements Condition {
+        @Override
+        public boolean test(ConditionContext context) {
+            return context.player.isInWater();
+        }
+    }
+
+    public static class InLavaCondition implements Condition {
+        @Override
+        public boolean test(ConditionContext context) {
+            return context.player.isInLava();
+        }
+    }
+
+    public static class TimeOfDayCondition implements Condition {
+        public final long min;
+        public final long max;
+
+        public TimeOfDayCondition(long min, long max) {
+            this.min = min;
+            this.max = max;
+        }
+
+        @Override
+        public boolean test(ConditionContext context) {
+            long time = context.player.level().getDayTime() % 24000;
+            if (min <= max) {
+                return time >= min && time <= max;
+            } else {
+                return time >= min || time <= max;
+            }
+        }
+    }
+
+    public static class ExperienceLevelsCondition implements Condition {
+        public final int min;
+        public final int max;
+
+        public ExperienceLevelsCondition(int min, int max) {
+            this.min = min;
+            this.max = max;
+        }
+
+        @Override
+        public boolean test(ConditionContext context) {
+            int levels = context.player.experienceLevel;
+            return levels >= min && levels <= max;
+        }
+    }
+
+    public static class DistanceToTargetCondition implements Condition {
+        public final double min;
+        public final double max;
+
+        public DistanceToTargetCondition(double min, double max) {
+            this.min = min;
+            this.max = max;
+        }
+
+        @Override
+        public boolean test(ConditionContext context) {
+            if (context.target == null) return false;
+            double distance = context.player.distanceTo(context.target);
+            return distance >= min && distance <= max;
+        }
+    }
+
     public static class SkillEffects {
         public List<AttributeBonus> attributeBonuses = new ArrayList<>();
         public List<AttributeMultiplier> attributeMultipliers = new ArrayList<>();
+        public List<ConditionalEffect> conditionalEffects = new ArrayList<>();
 
         public List<ResourceLocation> unlockedItems = new ArrayList<>();
         public List<ResourceLocation> unlockedBlocks = new ArrayList<>();
@@ -264,6 +533,16 @@ public class SkillEffectsConfig {
         public AttributeMultiplier(ResourceLocation attribute, double multiplier) {
             this.attribute = attribute;
             this.multiplier = multiplier;
+        }
+    }
+
+    public static class ConditionalEffect {
+        public Condition condition;
+        public List<AttributeBonus> attributeBonuses = new ArrayList<>();
+        public List<AttributeMultiplier> attributeMultipliers = new ArrayList<>();
+
+        public ConditionalEffect(Condition condition) {
+            this.condition = condition;
         }
     }
 }
