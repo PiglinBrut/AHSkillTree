@@ -2,12 +2,17 @@ package ru.pb.ahst.effects;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.Holder;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
@@ -21,6 +26,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
+import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
 import net.neoforged.neoforge.event.entity.living.LivingEquipmentChangeEvent;
 import net.neoforged.neoforge.event.entity.player.AttackEntityEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
@@ -34,6 +40,14 @@ import ru.pb.ahst.config.ItemRestrictionsConfig;
 import ru.pb.ahst.config.SkillEffectsConfig;
 import ru.pb.ahst.data.PlayerSkillData;
 import ru.pb.ahst.data.SkillDataAttachments;
+import ru.pb.ahst.effects.bonuses.CritChanceBonus;
+import ru.pb.ahst.effects.bonuses.FallDamageReductionBonus;
+import ru.pb.ahst.effects.bonuses.JumpPowerBonus;
+import ru.pb.ahst.effects.bonuses.LifestealBonus;
+import ru.pb.ahst.effects.bonuses.MiningSpeedBonus;
+import top.theillusivec4.curios.api.CuriosApi;
+import top.theillusivec4.curios.api.SlotContext;
+import top.theillusivec4.curios.api.event.CurioChangeEvent;
 
 import java.util.List;
 
@@ -41,6 +55,7 @@ import java.util.List;
 public class SkillEffectsEvents {
 
     private static boolean hasBetterCombat = false;
+    private static boolean hasCurios = false;
 
     static {
         try {
@@ -49,16 +64,20 @@ public class SkillEffectsEvents {
         } catch (ClassNotFoundException e) {
             hasBetterCombat = false;
         }
+        try {
+            Class.forName("top.theillusivec4.curios.Curios");
+            hasCurios = true;
+        } catch (ClassNotFoundException e) {
+            hasCurios = false;
+        }
     }
-
-    // ==================== Применение эффектов ====================
 
     @SubscribeEvent
     public static void onPlayerJoin(EntityJoinLevelEvent event) {
         if (event.getEntity() instanceof ServerPlayer serverPlayer && !event.getLevel().isClientSide) {
             BaseAttributesConfig.applyAttributesToPlayer(serverPlayer);
         } else if (event.getEntity() instanceof Player player && !event.getLevel().isClientSide) {
-            applyEffects(player);
+            SkillEffectsManager.applyAllSkillEffects(player, player.getData(SkillDataAttachments.PLAYER_SKILL_DATA));
             updateArmorPenalties(player);
         }
     }
@@ -68,7 +87,7 @@ public class SkillEffectsEvents {
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
             BaseAttributesConfig.applyAttributesToPlayer(serverPlayer);
         }
-        applyEffects(event.getEntity());
+        SkillEffectsManager.applyAllSkillEffects(event.getEntity(), event.getEntity().getData(SkillDataAttachments.PLAYER_SKILL_DATA));
         updateArmorPenalties(event.getEntity());
     }
 
@@ -77,7 +96,7 @@ public class SkillEffectsEvents {
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
             BaseAttributesConfig.applyAttributesToPlayer(serverPlayer);
         }
-        applyEffects(event.getEntity());
+        SkillEffectsManager.applyAllSkillEffects(event.getEntity(), event.getEntity().getData(SkillDataAttachments.PLAYER_SKILL_DATA));
         updateArmorPenalties(event.getEntity());
     }
 
@@ -94,25 +113,67 @@ public class SkillEffectsEvents {
     public static void onPlayerTick(PlayerTickEvent.Post event) {
         if (!event.getEntity().level().isClientSide && event.getEntity() instanceof Player player) {
             SkillEffectsManager.updateConditionalEffects(player);
+            applyJumpBonus(player);
         }
     }
 
-    private static void applyEffects(Player player) {
-        if (player == null || player.level().isClientSide) return;
-        PlayerSkillData skillData = player.getData(SkillDataAttachments.PLAYER_SKILL_DATA);
-        SkillEffectsManager.applyAllSkillEffects(player, skillData);
-
-        updateArmorPenalties(player);
+    private static void applyJumpBonus(Player player) {
+        double bonus = JumpPowerBonus.getTotalJumpBonus(player);
+        if (bonus > 0) {
+            // Применяем бонус к прыжку через атрибут
+            AttributeInstance jumpStrength = player.getAttribute(Attributes.JUMP_STRENGTH);
+            if (jumpStrength != null) {
+                ResourceLocation id = ResourceLocation.fromNamespaceAndPath(AHSkillTree.MOD_ID, "jump_bonus");
+                jumpStrength.removeModifier(id);
+                jumpStrength.addPermanentModifier(new AttributeModifier(id, bonus, AttributeModifier.Operation.ADD_VALUE));
+            }
+        }
     }
 
-    // ==================== Блокировка действий ====================
+    @SubscribeEvent
+    public static void onLivingHurt(LivingDamageEvent.Pre event) {
+        if (event.getSource().getEntity() instanceof Player player) {
+            // Вампиризм
+            double lifesteal = LifestealBonus.getTotalLifesteal(player);
+            if (lifesteal > 0 && event.getOriginalDamage() > 0) {
+                float healAmount = (float) (event.getOriginalDamage() * lifesteal);
+                player.heal(healAmount);
+            }
 
-    private static void sendBlockedMessage(Player player) {
-        player.displayClientMessage(
-                Component.literal("§cЭто действие заблокировано! Изучите нужный навык.")
-                        .withStyle(ChatFormatting.RED),
-                true
-        );
+            // Критический удар
+            if (CritChanceBonus.tryCrit(player, event.getEntity())) {
+                event.setNewDamage(event.getOriginalDamage() * 1.5f);
+                player.level().addParticle(ParticleTypes.CRIT,
+                        event.getEntity().getX(), event.getEntity().getY() + event.getEntity().getBbHeight() / 2,
+                        event.getEntity().getZ(), 0, 0, 0);
+            }
+        }
+
+        // Снижение урона от падения
+//        if (event.getSource().is(DamageTypeTags.IS_FALL) && event.getEntity() instanceof Player player) {
+//            double reduction = FallDamageReductionBonus.getTotalFallReduction(player);
+//
+//            AHSkillTree.LOGGER.info("  Reduction - {}, Damage {} -> {})", reduction, event.getOriginalDamage(), event.getNewDamage());
+//
+//            float newDamage = event.getOriginalDamage() * (float)(1 - reduction);
+//            event.setNewDamage(newDamage);
+//
+//        }
+    }
+
+    @SubscribeEvent
+    public static void onBlockBreak(BlockEvent.BreakEvent event) {
+        Player player = event.getPlayer();
+        BlockState block = event.getLevel().getBlockState(event.getPos());
+        if (!SkillEffectsManager.isBlockActionAllowed(player, block, BlockedAction.RIGHT_CLICK)) {
+            event.setCanceled(true);
+            sendBlockedMessage(player);
+        }
+        if (player != null) {
+            double speedMultiplier = MiningSpeedBonus.getTotalMiningSpeedMultiplier(player);
+            if (speedMultiplier > 1.0) {
+            }
+        }
     }
 
     @SubscribeEvent
@@ -136,6 +197,7 @@ public class SkillEffectsEvents {
             if (!SkillEffectsManager.isItemActionAllowed(player, stack, BlockedAction.PLACE_BLOCK)) {
                 event.setCanceled(true);
                 sendBlockedMessage(player);
+                return;
             }
         }
         if (!SkillEffectsManager.isBlockActionAllowed(player, block, BlockedAction.INTERACT_BLOCK)) {
@@ -159,12 +221,13 @@ public class SkillEffectsEvents {
     public static void onEquipmentChange(LivingEquipmentChangeEvent event) {
         if (event.getEntity() instanceof Player player && !player.level().isClientSide) {
             EquipmentSlot slot = event.getSlot();
-            ItemStack newStack = event.getTo();
+            ItemStack toStack = event.getTo();
 
-            if (slot.isArmor() && !newStack.isEmpty()) {
-                if (!SkillEffectsManager.isArmorActionAllowed(player, newStack, BlockedAction.EQUIP_ARMOR)) {
-                    player.drop(newStack.copy(), false);
-                    newStack.setCount(0);
+            if (slot.isArmor() && !toStack.isEmpty()) {
+                if (!SkillEffectsManager.isArmorActionAllowed(player, toStack, BlockedAction.EQUIP_ARMOR)) {
+                    player.getInventory().placeItemBackInInventory(toStack);
+
+                    sendBlockedMessage(player);
                     return;
                 }
             }
@@ -176,7 +239,26 @@ public class SkillEffectsEvents {
             if (slot != EquipmentSlot.MAINHAND && slot != EquipmentSlot.OFFHAND) {
                 updateVanillaWeaponPenalty(player);
             }
+        }
+    }
 
+    @SubscribeEvent
+    public static void onCurioChange(CurioChangeEvent event) {
+        if (!hasCurios) return;
+
+        LivingEntity living = event.getEntity();
+        if (!(living instanceof Player player)) return;
+
+        String slotType = event.getIdentifier();
+        int slotIndex = event.getSlotIndex();
+        ItemStack toStack = event.getTo();
+
+        if (!toStack.isEmpty()) {
+            if (!SkillEffectsManager.isCuriosActionAllowed(player, toStack, BlockedAction.EQUIP_CURIOS)) {
+                player.getInventory().placeItemBackInInventory(toStack);
+
+                sendBlockedMessage(player);
+            }
         }
     }
 
@@ -192,6 +274,14 @@ public class SkillEffectsEvents {
                 sendBlockedMessage(player);
             }
         }
+    }
+
+    private static void sendBlockedMessage(Player player) {
+        player.displayClientMessage(
+                Component.literal("§cЭто действие заблокировано!")
+                        .withStyle(ChatFormatting.RED),
+                true
+        );
     }
 
     private static void updateVanillaWeaponPenalty(Player player) {
@@ -287,9 +377,9 @@ public class SkillEffectsEvents {
             if (shouldApplyArmorPenalty(player, armor)) {
                 double multiplier = getArmorPenaltyMultiplier(armor);
 
-                totalSpeedPenalty += -0.55 * multiplier;   // -55% скорости за предмет
-                totalDamagePenalty += -0.40 * multiplier;  // -40% урона за предмет
-                totalArmorPenalty += -0.30 * multiplier;   // -30% защиты за предмет
+                totalSpeedPenalty += -0.55 * multiplier;
+                totalDamagePenalty += -0.40 * multiplier;
+                totalArmorPenalty += -0.30 * multiplier;
                 hasAnyPenalty = true;
             }
         }
@@ -319,7 +409,6 @@ public class SkillEffectsEvents {
         if (armor == null || armor.isEmpty()) return 1.0;
 
         Item item = armor.getItem();
-
         int armorValue = 0;
 
         if (item instanceof ArmorItem armorItem) {
@@ -327,7 +416,6 @@ public class SkillEffectsEvents {
         }
 
         double multiplier = (armorValue / 10.0) * 0.5;
-
         multiplier = Math.max(0.1, Math.min(1.5, multiplier));
 
         return multiplier;

@@ -1,4 +1,3 @@
-// SkillEffectsConfig.java
 package ru.pb.ahst.config;
 
 import com.google.gson.*;
@@ -8,10 +7,12 @@ import net.minecraft.tags.ItemTags;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.item.Item;
-import net.minecraft.world.item.enchantment.ConditionalEffect;
 import net.minecraft.world.level.block.Block;
 import ru.pb.ahst.AHSkillTree;
-import ru.pb.ahst.effects.ConditionContext;
+import ru.pb.ahst.effects.bonuses.BonusType;
+import ru.pb.ahst.effects.bonuses.SkillBonus;
+import ru.pb.ahst.effects.conditions.Condition;
+import ru.pb.ahst.effects.conditions.ConditionType;
 
 import java.io.*;
 import java.nio.file.Files;
@@ -25,6 +26,8 @@ public class SkillEffectsConfig {
 
     public static void init(Path configDir) {
         configPath = configDir.resolve(AHSkillTree.MOD_ID).resolve("AHSkillEffects.json");
+        ConditionType.init();
+        BonusType.init();
         loadConfig();
     }
 
@@ -45,7 +48,7 @@ public class SkillEffectsConfig {
 
                 SkillEffects effects = new SkillEffects();
 
-                // Атрибут бонусы
+                // Атрибут бонусы (старый формат)
                 if (obj.has("attribute_bonuses")) {
                     JsonArray bonuses = obj.getAsJsonArray("attribute_bonuses");
                     for (JsonElement bonusElem : bonuses) {
@@ -55,19 +58,7 @@ public class SkillEffectsConfig {
                         double amount = bonusObj.get("amount").getAsDouble();
                         String name = bonusObj.has("name") ? bonusObj.get("name").getAsString() : skillId + "_bonus";
 
-                        AttributeModifier.Operation operation;
-                        try {
-                            operation = AttributeModifier.Operation.valueOf(operationStr);
-                        } catch (IllegalArgumentException e) {
-                            // Поддержка старых названий
-                            operation = switch (operationStr.toUpperCase()) {
-                                case "ADDITION" -> AttributeModifier.Operation.ADD_VALUE;
-                                case "MULTIPLY_BASE" -> AttributeModifier.Operation.ADD_MULTIPLIED_BASE;
-                                case "MULTIPLY_TOTAL" -> AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL;
-                                default -> AttributeModifier.Operation.ADD_VALUE;
-                            };
-                            AHSkillTree.LOGGER.warn("Old operation '{}' converted to {}", operationStr, operation);
-                        }
+                        AttributeModifier.Operation operation = parseOperation(operationStr);
 
                         effects.attributeBonuses.add(new AttributeBonus(
                                 ResourceLocation.parse(attributeId),
@@ -78,7 +69,7 @@ public class SkillEffectsConfig {
                     }
                 }
 
-                // Множители атрибутов
+                // Множители атрибутов (старый формат)
                 if (obj.has("attribute_multipliers")) {
                     JsonArray multipliers = obj.getAsJsonArray("attribute_multipliers");
                     for (JsonElement multElem : multipliers) {
@@ -93,7 +84,7 @@ public class SkillEffectsConfig {
                     }
                 }
 
-                // Условные эффекты
+                // Условные эффекты (НОВЫЙ ФОРМАТ)
                 if (obj.has("conditional_effects")) {
                     JsonArray conditionalArray = obj.getAsJsonArray("conditional_effects");
                     for (JsonElement condElem : conditionalArray) {
@@ -105,12 +96,23 @@ public class SkillEffectsConfig {
                     }
                 }
 
+                // НОВЫЕ БОНУСЫ (через систему BonusType)
+                if (obj.has("bonuses")) {
+                    JsonArray bonusesArray = obj.getAsJsonArray("bonuses");
+                    for (JsonElement bonusElem : bonusesArray) {
+                        JsonObject bonusObj = bonusElem.getAsJsonObject();
+                        SkillBonus bonus = BonusType.create(bonusObj, skillId);
+                        if (bonus != null) {
+                            effects.bonuses.add(bonus);
+                        }
+                    }
+                }
+
                 // Разрешенные предметы
                 if (obj.has("unlocked_items")) {
                     JsonArray items = obj.getAsJsonArray("unlocked_items");
                     for (JsonElement itemElem : items) {
-                        String itemId = itemElem.getAsString();
-                        effects.unlockedItems.add(ResourceLocation.parse(itemId));
+                        effects.unlockedItems.add(ResourceLocation.parse(itemElem.getAsString()));
                     }
                 }
 
@@ -148,8 +150,7 @@ public class SkillEffectsConfig {
                 if (obj.has("locked_items")) {
                     JsonArray items = obj.getAsJsonArray("locked_items");
                     for (JsonElement itemElem : items) {
-                        String itemId = itemElem.getAsString();
-                        effects.lockedItems.add(ResourceLocation.parse(itemId));
+                        effects.lockedItems.add(ResourceLocation.parse(itemElem.getAsString()));
                     }
                 }
 
@@ -201,32 +202,36 @@ public class SkillEffectsConfig {
             JsonObject root = new JsonObject();
             JsonArray effectsArray = new JsonArray();
 
-            // Пример эффектов для combat_basic
-            JsonObject combatBasic = new JsonObject();
-            combatBasic.addProperty("skill_id", "combat_basic");
+            // Пример с новыми бонусами
+            JsonObject vampireSkill = new JsonObject();
+            vampireSkill.addProperty("skill_id", "vampiric_strike");
             JsonArray bonuses = new JsonArray();
-            JsonObject damageBonus = new JsonObject();
-            damageBonus.addProperty("attribute", "minecraft:generic.attack_damage");
-            damageBonus.addProperty("operation", "ADD_VALUE");
-            damageBonus.addProperty("amount", 2.0);
-            bonuses.add(damageBonus);
-            combatBasic.add("attribute_bonuses", bonuses);
-            effectsArray.add(combatBasic);
 
-            // Пример эффектов для ultimate
-            JsonObject ultimate = new JsonObject();
-            ultimate.addProperty("skill_id", "ultimate");
-            JsonArray multipliers = new JsonArray();
-            JsonObject damageMult = new JsonObject();
-            damageMult.addProperty("attribute", "minecraft:generic.attack_damage");
-            damageMult.addProperty("multiplier", 1.5);
-            multipliers.add(damageMult);
-            ultimate.add("attribute_multipliers", multipliers);
+            JsonObject lifesteal = new JsonObject();
+            lifesteal.addProperty("type", "ahst:lifesteal");
+            lifesteal.addProperty("percentage", 0.15);
+            bonuses.add(lifesteal);
 
-            JsonArray unlocked = new JsonArray();
-            unlocked.add("minecraft:diamond_sword");
-            ultimate.add("unlocked_items", unlocked);
-            effectsArray.add(ultimate);
+            vampireSkill.add("bonuses", bonuses);
+
+            JsonObject conditional = new JsonObject();
+            conditional.addProperty("type", "ahst:health_percentage");
+            conditional.addProperty("min", 30);
+
+            JsonObject conditionalEffect = new JsonObject();
+            conditionalEffect.add("condition", conditional);
+            JsonArray condBonuses = new JsonArray();
+            JsonObject critBonus = new JsonObject();
+            critBonus.addProperty("type", "ahst:crit_chance");
+            critBonus.addProperty("chance", 0.30);
+            condBonuses.add(critBonus);
+            conditionalEffect.add("bonuses", condBonuses);
+
+            JsonArray conditionalEffects = new JsonArray();
+            conditionalEffects.add(conditionalEffect);
+            vampireSkill.add("conditional_effects", conditionalEffects);
+
+            effectsArray.add(vampireSkill);
 
             root.add("skill_effects", effectsArray);
             Files.writeString(configPath, GSON.toJson(root));
@@ -235,12 +240,6 @@ public class SkillEffectsConfig {
             AHSkillTree.LOGGER.error("Failed to create default effects config", e);
         }
     }
-
-    public static SkillEffects getEffects(String skillId) {
-        return SKILL_EFFECTS.getOrDefault(skillId, new SkillEffects());
-    }
-
-
 
     private static AttributeModifier.Operation parseOperation(String operationStr) {
         try {
@@ -259,57 +258,12 @@ public class SkillEffectsConfig {
         JsonObject conditionObj = condObj.getAsJsonObject("condition");
         if (conditionObj == null) return null;
 
-        String type = conditionObj.get("type").getAsString();
-        Condition condition = switch (type) {
-            case "health_percentage" -> {
-                double min = conditionObj.has("min") ? conditionObj.get("min").getAsDouble() : 0;
-                double max = conditionObj.has("max") ? conditionObj.get("max").getAsDouble() : 100;
-                yield new HealthPercentageCondition(min, max);
-            }
-            case "health_absolute" -> {
-                double min = conditionObj.has("min") ? conditionObj.get("min").getAsDouble() : 0;
-                double max = conditionObj.has("max") ? conditionObj.get("max").getAsDouble() : Double.MAX_VALUE;
-                yield new HealthAbsoluteCondition(min, max);
-            }
-            case "food_percentage" -> {
-                double min = conditionObj.has("min") ? conditionObj.get("min").getAsDouble() : 0;
-                double max = conditionObj.has("max") ? conditionObj.get("max").getAsDouble() : 100;
-                yield new FoodPercentageCondition(min, max);
-            }
-            case "food_absolute" -> {
-                int min = conditionObj.has("min") ? conditionObj.get("min").getAsInt() : 0;
-                int max = conditionObj.has("max") ? conditionObj.get("max").getAsInt() : 20;
-                yield new FoodAbsoluteCondition(min, max);
-            }
-            case "on_fire" -> new OnFireCondition();
-            case "sprinting" -> new SprintingCondition();
-            case "in_water" -> new InWaterCondition();
-            case "in_lava" -> new InLavaCondition();
-            case "time_of_day" -> {
-                long min = conditionObj.has("min") ? conditionObj.get("min").getAsLong() : 0;
-                long max = conditionObj.has("max") ? conditionObj.get("max").getAsLong() : 24000;
-                yield new TimeOfDayCondition(min, max);
-            }
-            case "experience_levels" -> {
-                int min = conditionObj.has("min") ? conditionObj.get("min").getAsInt() : 0;
-                int max = conditionObj.has("max") ? conditionObj.get("max").getAsInt() : Integer.MAX_VALUE;
-                yield new ExperienceLevelsCondition(min, max);
-            }
-            case "distance_to_target" -> {
-                double min = conditionObj.has("min") ? conditionObj.get("min").getAsDouble() : 0;
-                double max = conditionObj.has("max") ? conditionObj.get("max").getAsDouble() : Double.MAX_VALUE;
-                yield new DistanceToTargetCondition(min, max);
-            }
-            default -> {
-                AHSkillTree.LOGGER.warn("Unknown condition type: {}", type);
-                yield null;
-            }
-        };
-
+        Condition condition = ConditionType.create(conditionObj);
         if (condition == null) return null;
 
         ConditionalEffect effect = new ConditionalEffect(condition);
 
+        // Старый формат (attribute_bonuses)
         if (condObj.has("attribute_bonuses")) {
             JsonArray bonuses = condObj.getAsJsonArray("attribute_bonuses");
             for (JsonElement bonusElem : bonuses) {
@@ -328,6 +282,7 @@ public class SkillEffectsConfig {
             }
         }
 
+        // Старый формат (attribute_multipliers)
         if (condObj.has("attribute_multipliers")) {
             JsonArray multipliers = condObj.getAsJsonArray("attribute_multipliers");
             for (JsonElement multElem : multipliers) {
@@ -342,162 +297,30 @@ public class SkillEffectsConfig {
             }
         }
 
+        // Новый формат (bonuses)
+        if (condObj.has("bonuses")) {
+            JsonArray bonusesArray = condObj.getAsJsonArray("bonuses");
+            for (JsonElement bonusElem : bonusesArray) {
+                JsonObject bonusObj = bonusElem.getAsJsonObject();
+                SkillBonus bonus = BonusType.create(bonusObj, skillId);
+                if (bonus != null) {
+                    effect.bonuses.add(bonus);
+                }
+            }
+        }
+
         return effect;
     }
 
-    public interface Condition {
-        boolean test(ConditionContext context);
-    }
-
-    public static class HealthPercentageCondition implements Condition {
-        public final double min;
-        public final double max;
-
-        public HealthPercentageCondition(double min, double max) {
-            this.min = min;
-            this.max = max;
-        }
-
-        @Override
-        public boolean test(ConditionContext context) {
-            float percentage = context.player.getHealth() / context.player.getMaxHealth() * 100;
-            return percentage >= min && percentage <= max;
-        }
-    }
-
-    public static class HealthAbsoluteCondition implements Condition {
-        public final double min;
-        public final double max;
-
-        public HealthAbsoluteCondition(double min, double max) {
-            this.min = min;
-            this.max = max;
-        }
-
-        @Override
-        public boolean test(ConditionContext context) {
-            float health = context.player.getHealth();
-            return health >= min && health <= max;
-        }
-    }
-
-    public static class FoodPercentageCondition implements Condition {
-        public final double min;
-        public final double max;
-
-        public FoodPercentageCondition(double min, double max) {
-            this.min = min;
-            this.max = max;
-        }
-
-        @Override
-        public boolean test(ConditionContext context) {
-            float percentage = context.player.getFoodData().getFoodLevel() / 20f * 100;
-            return percentage >= min && percentage <= max;
-        }
-    }
-
-    public static class FoodAbsoluteCondition implements Condition {
-        public final int min;
-        public final int max;
-
-        public FoodAbsoluteCondition(int min, int max) {
-            this.min = min;
-            this.max = max;
-        }
-
-        @Override
-        public boolean test(ConditionContext context) {
-            int food = context.player.getFoodData().getFoodLevel();
-            return food >= min && food <= max;
-        }
-    }
-
-    public static class OnFireCondition implements Condition {
-        @Override
-        public boolean test(ConditionContext context) {
-            return context.player.isOnFire();
-        }
-    }
-
-    public static class SprintingCondition implements Condition {
-        @Override
-        public boolean test(ConditionContext context) {
-            return context.player.isSprinting();
-        }
-    }
-
-    public static class InWaterCondition implements Condition {
-        @Override
-        public boolean test(ConditionContext context) {
-            return context.player.isInWater();
-        }
-    }
-
-    public static class InLavaCondition implements Condition {
-        @Override
-        public boolean test(ConditionContext context) {
-            return context.player.isInLava();
-        }
-    }
-
-    public static class TimeOfDayCondition implements Condition {
-        public final long min;
-        public final long max;
-
-        public TimeOfDayCondition(long min, long max) {
-            this.min = min;
-            this.max = max;
-        }
-
-        @Override
-        public boolean test(ConditionContext context) {
-            long time = context.player.level().getDayTime() % 24000;
-            if (min <= max) {
-                return time >= min && time <= max;
-            } else {
-                return time >= min || time <= max;
-            }
-        }
-    }
-
-    public static class ExperienceLevelsCondition implements Condition {
-        public final int min;
-        public final int max;
-
-        public ExperienceLevelsCondition(int min, int max) {
-            this.min = min;
-            this.max = max;
-        }
-
-        @Override
-        public boolean test(ConditionContext context) {
-            int levels = context.player.experienceLevel;
-            return levels >= min && levels <= max;
-        }
-    }
-
-    public static class DistanceToTargetCondition implements Condition {
-        public final double min;
-        public final double max;
-
-        public DistanceToTargetCondition(double min, double max) {
-            this.min = min;
-            this.max = max;
-        }
-
-        @Override
-        public boolean test(ConditionContext context) {
-            if (context.target == null) return false;
-            double distance = context.player.distanceTo(context.target);
-            return distance >= min && distance <= max;
-        }
+    public static SkillEffects getEffects(String skillId) {
+        return SKILL_EFFECTS.getOrDefault(skillId, new SkillEffects());
     }
 
     public static class SkillEffects {
         public List<AttributeBonus> attributeBonuses = new ArrayList<>();
         public List<AttributeMultiplier> attributeMultipliers = new ArrayList<>();
         public List<ConditionalEffect> conditionalEffects = new ArrayList<>();
+        public List<SkillBonus> bonuses = new ArrayList<>(); // НОВОЕ
 
         public List<ResourceLocation> unlockedItems = new ArrayList<>();
         public List<ResourceLocation> unlockedBlocks = new ArrayList<>();
@@ -540,6 +363,7 @@ public class SkillEffectsConfig {
         public Condition condition;
         public List<AttributeBonus> attributeBonuses = new ArrayList<>();
         public List<AttributeMultiplier> attributeMultipliers = new ArrayList<>();
+        public List<SkillBonus> bonuses = new ArrayList<>(); // НОВОЕ
 
         public ConditionalEffect(Condition condition) {
             this.condition = condition;

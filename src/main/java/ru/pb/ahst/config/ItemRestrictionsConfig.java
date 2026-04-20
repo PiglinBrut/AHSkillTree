@@ -31,7 +31,6 @@ public class ItemRestrictionsConfig {
     private static final Map<TagKey<Item>, Set<BlockedAction>> TEMP_ITEM_TAG_RESTRICTIONS = new HashMap<>();
     private static final Map<ResourceLocation, Set<BlockedAction>> TEMP_BLOCK_RESTRICTIONS = new HashMap<>();
     private static final Map<TagKey<Block>, Set<BlockedAction>> TEMP_BLOCK_TAG_RESTRICTIONS = new HashMap<>();
-    private static final Map<ResourceLocation, Set<BlockedAction>> TEMP_ARMOR_RESTRICTIONS = new HashMap<>();
 
     private static boolean useTempRestrictions = false;
 
@@ -69,14 +68,6 @@ public class ItemRestrictionsConfig {
 
     public static void addTempBlockTagRestriction(TagKey<Block> tag, Set<BlockedAction> actions) {
         TEMP_BLOCK_TAG_RESTRICTIONS.merge(tag, new HashSet<>(actions), (old, neu) -> {
-            old.addAll(neu);
-            return old;
-        });
-        useTempRestrictions = true;
-    }
-
-    public static void addTempArmorRestriction(ResourceLocation armorId, Set<BlockedAction> actions) {
-        TEMP_ARMOR_RESTRICTIONS.merge(armorId, new HashSet<>(actions), (old, neu) -> {
             old.addAll(neu);
             return old;
         });

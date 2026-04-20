@@ -1,5 +1,6 @@
 package ru.pb.ahst;
 
+import net.neoforged.fml.loading.FMLPaths;
 import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
@@ -13,10 +14,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import ru.pb.ahst.command.SkillDebugCommand;
-import ru.pb.ahst.config.BaseAttributesConfig;
-import ru.pb.ahst.config.ItemRestrictionsConfig;
-import ru.pb.ahst.config.SkillConfig;
-import ru.pb.ahst.config.SkillEffectsConfig;
+import ru.pb.ahst.config.*;
 import ru.pb.ahst.data.SkillDataAttachments;
 import ru.pb.ahst.registry.ItemRegistry;
 import ru.pb.ahst.registry.NetworkRegistry;
@@ -49,6 +47,7 @@ public class AHSkillTree {
             SkillEffectsConfig.init(configDir);
             ItemRestrictionsConfig.init(configDir);
             BaseAttributesConfig.init(configDir);
+            ConfigManager.init(configDir);
         });
     }
 

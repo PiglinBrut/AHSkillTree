@@ -10,5 +10,6 @@ public enum BlockedAction {
     INTERACT_BLOCK,             // Взаимодействие с уже установленным блоком (открытие GUI)
     UNPREPAREDNESS_FOR_WEAPON,  // Штрафы при использовании
     EQUIP_ARMOR,                // Полная блокировка надевания брони
-    UNPREPAREDNESS_FOR_ARMOR    // Штрафы при ношении брони
+    UNPREPAREDNESS_FOR_ARMOR,   // Штрафы при ношении брони
+    EQUIP_CURIOS                // Блокировка надевания аксессуаров
 }
