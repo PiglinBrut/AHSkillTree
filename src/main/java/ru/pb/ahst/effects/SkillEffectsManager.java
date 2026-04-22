@@ -19,7 +19,6 @@ import ru.pb.ahst.config.ItemRestrictionsConfig;
 import ru.pb.ahst.config.SkillEffectsConfig;
 import ru.pb.ahst.data.PlayerSkillData;
 import ru.pb.ahst.data.SkillDataAttachments;
-import ru.pb.ahst.effects.bonuses.SkillBonus;
 
 import java.util.*;
 
@@ -41,14 +40,12 @@ public class SkillEffectsManager {
 
     // Кэш состояний условных эффектов
     private static final Map<UUID, Map<String, Boolean>> CONDITION_CACHE = new HashMap<>();
-    private static final Map<UUID, Map<String, List<SkillBonus>>> ACTIVE_CONDITIONAL_BONUSES = new HashMap<>();
 
     public static void applyAllSkillEffects(Player player, PlayerSkillData skillData) {
         if (player == null) return;
 
         clearAllSkillModifiers(player);
         clearAllConditionalEffects(player);
-        clearAllBonuses(player);
 
         ItemRestrictionsConfig.clearTempRestrictions();
 
@@ -56,19 +53,7 @@ public class SkillEffectsManager {
             applySkillRestrictions(skillId);
             applySkillEffects(player, skillId);
             applyMultipliers(player, skillId);
-            applyBonuses(player, skillId);
         }
-    }
-
-    private static void applyBonuses(Player player, String skillId) {
-        SkillEffectsConfig.SkillEffects effects = SkillEffectsConfig.getEffects(skillId);
-        for (SkillBonus bonus : effects.bonuses) {
-            bonus.apply(player, skillId);
-        }
-    }
-
-    private static void clearAllBonuses(Player player) {
-
     }
 
     private static void applySkillRestrictions(String skillId) {
@@ -157,6 +142,11 @@ public class SkillEffectsManager {
         }
     }
 
+    public static void clearConditionCache(Player player) {
+        if (player == null) return;
+        CONDITION_CACHE.remove(player.getUUID());
+    }
+
     public static void updateConditionalEffects(Player player) {
         if (player == null || player.level().isClientSide) return;
 
@@ -165,7 +155,6 @@ public class SkillEffectsManager {
 
         UUID playerId = player.getUUID();
         Map<String, Boolean> cache = CONDITION_CACHE.computeIfAbsent(playerId, k -> new HashMap<>());
-        Map<String, List<SkillBonus>> activeBonuses = ACTIVE_CONDITIONAL_BONUSES.computeIfAbsent(playerId, k -> new HashMap<>());
 
         for (String skillId : skillData.getLearnedSkills()) {
             SkillEffectsConfig.SkillEffects effects = SkillEffectsConfig.getEffects(skillId);
@@ -179,9 +168,6 @@ public class SkillEffectsManager {
 
                 if (wasMet == null || wasMet != conditionMet) {
                     if (conditionMet) {
-                        // Применяем эффекты
-                        List<SkillBonus> appliedBonuses = new ArrayList<>();
-
                         // Старые attribute bonuses
                         for (SkillEffectsConfig.AttributeBonus bonus : condEffect.attributeBonuses) {
                             Optional<Holder.Reference<Attribute>> holder = BuiltInRegistries.ATTRIBUTE.getHolder(bonus.attribute);
@@ -216,14 +202,6 @@ public class SkillEffectsManager {
                                 }
                             }
                         }
-
-                        // Новые бонусы
-                        for (SkillBonus bonus : condEffect.bonuses) {
-                            bonus.apply(player, skillId + "_cond_" + i);
-                            appliedBonuses.add(bonus);
-                        }
-
-                        activeBonuses.put(key, appliedBonuses);
                     } else {
                         // Удаляем эффекты
                         for (SkillEffectsConfig.AttributeBonus bonus : condEffect.attributeBonuses) {
@@ -247,13 +225,6 @@ public class SkillEffectsManager {
                                 }
                             }
                         }
-
-                        List<SkillBonus> removedBonuses = activeBonuses.remove(key);
-                        if (removedBonuses != null) {
-                            for (SkillBonus bonus : removedBonuses) {
-                                bonus.remove(player);
-                            }
-                        }
                     }
 
                     cache.put(key, conditionMet);
@@ -267,15 +238,6 @@ public class SkillEffectsManager {
 
         UUID playerId = player.getUUID();
         CONDITION_CACHE.remove(playerId);
-
-        Map<String, List<SkillBonus>> activeBonuses = ACTIVE_CONDITIONAL_BONUSES.remove(playerId);
-        if (activeBonuses != null) {
-            for (List<SkillBonus> bonuses : activeBonuses.values()) {
-                for (SkillBonus bonus : bonuses) {
-                    bonus.remove(player);
-                }
-            }
-        }
     }
 
     private static LivingEntity getCurrentTarget(Player player) {

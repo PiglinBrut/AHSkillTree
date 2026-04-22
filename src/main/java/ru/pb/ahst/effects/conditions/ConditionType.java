@@ -69,6 +69,16 @@ public class ConditionType {
             return new FoodAbsoluteCondition(min, max);
         });
 
+        register(ResourceLocation.parse("ahst:has_skill"), json -> {
+            String skillId = json.get("skill").getAsString();
+            return new SkillLearnedCondition(skillId);
+        });
+
+        register(ResourceLocation.parse("ahst:lacks_skill"), json -> {
+            String skillId = json.get("skill").getAsString();
+            return new SkillNotCondition(new SkillLearnedCondition(skillId));
+        });
+
         register(ResourceLocation.parse("ahst:on_fire"), json -> new OnFireCondition());
         register(ResourceLocation.parse("ahst:sprinting"), json -> new SprintingCondition());
         register(ResourceLocation.parse("ahst:in_water"), json -> new InWaterCondition());

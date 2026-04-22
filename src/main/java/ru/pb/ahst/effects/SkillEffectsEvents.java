@@ -8,9 +8,9 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.sounds.SoundEvents;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.tags.TagKey;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attribute;
@@ -25,6 +25,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.event.entity.EntityAttributeModificationEvent;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
 import net.neoforged.neoforge.event.entity.living.LivingEquipmentChangeEvent;
@@ -40,13 +41,7 @@ import ru.pb.ahst.config.ItemRestrictionsConfig;
 import ru.pb.ahst.config.SkillEffectsConfig;
 import ru.pb.ahst.data.PlayerSkillData;
 import ru.pb.ahst.data.SkillDataAttachments;
-import ru.pb.ahst.effects.bonuses.CritChanceBonus;
-import ru.pb.ahst.effects.bonuses.FallDamageReductionBonus;
-import ru.pb.ahst.effects.bonuses.JumpPowerBonus;
-import ru.pb.ahst.effects.bonuses.LifestealBonus;
-import ru.pb.ahst.effects.bonuses.MiningSpeedBonus;
-import top.theillusivec4.curios.api.CuriosApi;
-import top.theillusivec4.curios.api.SlotContext;
+import ru.pb.ahst.registry.AttributeRegistry;
 import top.theillusivec4.curios.api.event.CurioChangeEvent;
 
 import java.util.List;
@@ -70,6 +65,17 @@ public class SkillEffectsEvents {
         } catch (ClassNotFoundException e) {
             hasCurios = false;
         }
+    }
+
+    @SubscribeEvent
+    public static void onEntityAttributeModification(EntityAttributeModificationEvent event) {
+        AttributeRegistry.getFallReductionHolder().ifPresent(holder -> {
+            event.add(EntityType.PLAYER, holder);
+        });
+
+        AttributeRegistry.getLifestealHolder().ifPresent(holder -> {
+            event.add(EntityType.PLAYER, holder);
+        });
     }
 
     @SubscribeEvent
@@ -109,56 +115,48 @@ public class SkillEffectsEvents {
         }
     }
 
+
+
     @SubscribeEvent
     public static void onPlayerTick(PlayerTickEvent.Post event) {
         if (!event.getEntity().level().isClientSide && event.getEntity() instanceof Player player) {
             SkillEffectsManager.updateConditionalEffects(player);
-            applyJumpBonus(player);
-        }
-    }
-
-    private static void applyJumpBonus(Player player) {
-        double bonus = JumpPowerBonus.getTotalJumpBonus(player);
-        if (bonus > 0) {
-            // Применяем бонус к прыжку через атрибут
-            AttributeInstance jumpStrength = player.getAttribute(Attributes.JUMP_STRENGTH);
-            if (jumpStrength != null) {
-                ResourceLocation id = ResourceLocation.fromNamespaceAndPath(AHSkillTree.MOD_ID, "jump_bonus");
-                jumpStrength.removeModifier(id);
-                jumpStrength.addPermanentModifier(new AttributeModifier(id, bonus, AttributeModifier.Operation.ADD_VALUE));
-            }
         }
     }
 
     @SubscribeEvent
     public static void onLivingHurt(LivingDamageEvent.Pre event) {
         if (event.getSource().getEntity() instanceof Player player) {
-            // Вампиризм
-            double lifesteal = LifestealBonus.getTotalLifesteal(player);
-            if (lifesteal > 0 && event.getOriginalDamage() > 0) {
-                float healAmount = (float) (event.getOriginalDamage() * lifesteal);
-                player.heal(healAmount);
-            }
+            AttributeRegistry.getLifestealHolder().ifPresent(holder -> {
+                AttributeInstance lifestealAttr = player.getAttribute(holder);
+                if (lifestealAttr != null) {
+                    double lifesteal = lifestealAttr.getValue();
+                    if (lifesteal > 0 && event.getOriginalDamage() > 0) {
+                        float healAmount = (float) (event.getOriginalDamage() * lifesteal);
+                        player.heal(healAmount);
 
-            // Критический удар
-            if (CritChanceBonus.tryCrit(player, event.getEntity())) {
-                event.setNewDamage(event.getOriginalDamage() * 1.5f);
-                player.level().addParticle(ParticleTypes.CRIT,
-                        event.getEntity().getX(), event.getEntity().getY() + event.getEntity().getBbHeight() / 2,
-                        event.getEntity().getZ(), 0, 0, 0);
-            }
+                        // Визуальный эффект вампиризма
+                        if (player.level() instanceof ServerLevel serverLevel) {
+                            serverLevel.sendParticles(ParticleTypes.HEART,
+                                    player.getX(), player.getY() + player.getBbHeight() / 2, player.getZ(),
+                                    5, 0.3, 0.3, 0.3, 0.1);
+                        }
+                    }
+                }
+            });
         }
-
-        // Снижение урона от падения
-//        if (event.getSource().is(DamageTypeTags.IS_FALL) && event.getEntity() instanceof Player player) {
-//            double reduction = FallDamageReductionBonus.getTotalFallReduction(player);
-//
-//            AHSkillTree.LOGGER.info("  Reduction - {}, Damage {} -> {})", reduction, event.getOriginalDamage(), event.getNewDamage());
-//
-//            float newDamage = event.getOriginalDamage() * (float)(1 - reduction);
-//            event.setNewDamage(newDamage);
-//
-//        }
+        if (event.getSource().is(DamageTypeTags.IS_FALL) && event.getEntity() instanceof Player player) {
+            AttributeRegistry.getFallReductionHolder().ifPresent(holder -> {
+                AttributeInstance fallReductionAttr = player.getAttribute(holder);
+                if (fallReductionAttr != null) {
+                    double reduction = fallReductionAttr.getValue();
+                    if (reduction > 0) {
+                        float newDamage = event.getOriginalDamage() * (float)(1 - reduction);
+                        event.setNewDamage(newDamage);
+                    }
+                }
+            });
+        }
     }
 
     @SubscribeEvent
@@ -168,11 +166,6 @@ public class SkillEffectsEvents {
         if (!SkillEffectsManager.isBlockActionAllowed(player, block, BlockedAction.RIGHT_CLICK)) {
             event.setCanceled(true);
             sendBlockedMessage(player);
-        }
-        if (player != null) {
-            double speedMultiplier = MiningSpeedBonus.getTotalMiningSpeedMultiplier(player);
-            if (speedMultiplier > 1.0) {
-            }
         }
     }
 

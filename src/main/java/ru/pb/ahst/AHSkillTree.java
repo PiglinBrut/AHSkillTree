@@ -16,6 +16,7 @@ import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import ru.pb.ahst.command.SkillDebugCommand;
 import ru.pb.ahst.config.*;
 import ru.pb.ahst.data.SkillDataAttachments;
+import ru.pb.ahst.registry.AttributeRegistry;
 import ru.pb.ahst.registry.ItemRegistry;
 import ru.pb.ahst.registry.NetworkRegistry;
 
@@ -33,11 +34,11 @@ public class AHSkillTree {
 
         modEventBus.addListener(this::addCreative);
 
-        //modEventBus.addListener(NetworkRegistry::register);
-
         ItemRegistry.register(modEventBus);
 
-        SkillDataAttachments.ATTACHMENT_TYPES.register(modEventBus);
+        SkillDataAttachments.register(modEventBus);
+
+        AttributeRegistry.register(modEventBus);
     }
 
     private void commonSetup(FMLCommonSetupEvent event) {

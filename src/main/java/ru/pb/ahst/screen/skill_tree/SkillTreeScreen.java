@@ -17,14 +17,12 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
-import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec2;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.NotNull;
 import org.joml.Vector4f;
 import ru.pb.ahst.AHSkillTree;
-import ru.pb.ahst.client.StarSkyRenderer;
 import ru.pb.ahst.config.SkillConfig;
 import ru.pb.ahst.data.PlayerSkillData;
 import ru.pb.ahst.data.SkillDataAttachments;
@@ -41,6 +39,22 @@ public class SkillTreeScreen extends Screen {
             "irons_spellbooks", "textures/gui/eldritch_research_screen/window.png");
     private static final ResourceLocation FRAME_LOCATION = ResourceLocation.fromNamespaceAndPath(
             "irons_spellbooks", "textures/gui/eldritch_research_screen/spell_frame.png");
+    private static final ResourceLocation BACKGROUND_LAYER_1 = ResourceLocation.fromNamespaceAndPath(
+            AHSkillTree.MOD_ID, "textures/gui/background/background.png");
+    private static final ResourceLocation BACKGROUND_LAYER_2 = ResourceLocation.fromNamespaceAndPath(
+            AHSkillTree.MOD_ID, "textures/gui/background/background_stars.png");
+    private static final ResourceLocation BACKGROUND_LAYER_3 = ResourceLocation.fromNamespaceAndPath(
+            AHSkillTree.MOD_ID, "textures/gui/background/background_taiga1.png");
+    private static final ResourceLocation BACKGROUND_LAYER_4 = ResourceLocation.fromNamespaceAndPath(
+            AHSkillTree.MOD_ID, "textures/gui/background/background_lake.png");
+    private static final ResourceLocation BACKGROUND_LAYER_5 = ResourceLocation.fromNamespaceAndPath(
+            AHSkillTree.MOD_ID, "textures/gui/background/background_taiga2.png");
+    private static final ResourceLocation BACKGROUND_LAYER_6 = ResourceLocation.fromNamespaceAndPath(
+            AHSkillTree.MOD_ID, "textures/gui/background/background_taiga3.png");
+    private static final ResourceLocation BACKGROUND_LAYER_7 = ResourceLocation.fromNamespaceAndPath(
+            AHSkillTree.MOD_ID, "textures/gui/background/background_taiga4.png");
+
+    private float maxViewportOffset = 0;
 
     private static final ItemStack REQUIRED_ITEM = new ItemStack(ItemRegistry.SKILL_MANUSCRIPT.get());
     private static final int REQUIRED_ITEM_COUNT = 1;
@@ -76,6 +90,8 @@ public class SkillTreeScreen extends Screen {
         leftPos = (this.width - windowWidth) / 2;
         topPos = (this.height - windowHeight) / 2;
 
+        calculateMaxViewportOffset();
+
         if (Minecraft.getInstance().player != null) {
             skillData = Minecraft.getInstance().player.getData(SkillDataAttachments.PLAYER_SKILL_DATA);
             if (skillData.getPlayer() == null) {
@@ -92,6 +108,21 @@ public class SkillTreeScreen extends Screen {
         viewportOffset = Vec2.ZERO;
         selectedSkillIndex = -1;
         holdProgress = -1;
+    }
+
+    private void calculateMaxViewportOffset() {
+        int texWidth = 1024;
+        int texHeight = 1024;
+
+        float menuW = width * 0.9f;
+        float menuH = height * 0.9f;
+        float scale = Math.max(menuW / texWidth, menuH / texHeight) * 1.4f;
+        float scaledW = texWidth * scale;
+        float maxTextureOffset = (scaledW - menuW) / 2;
+
+        float maxOffset = Math.min(maxTextureOffset / 0.3f, 750);
+
+        maxViewportOffset = maxOffset;
     }
 
     @Override
@@ -129,17 +160,71 @@ public class SkillTreeScreen extends Screen {
     }
 
     private void drawBackdrop(GuiGraphics guiGraphics) {
-        float f = Minecraft.getInstance().player != null ? (float) Minecraft.getInstance().player.tickCount * 0.02F : 0.0F;
-        float color = (Mth.sin(f) + 1.0F) * 0.25F + 0.15F;
-        RenderHelper.quadBuilder()
-                .vertex((float) leftPos + 9, (float) (this.height * 0.9) + 18)
-                .vertex((float) (this.width * 0.95) - 9, (float) (this.height * 0.9) + 18)
-                .vertex((float) (this.width * 0.95) - 9, (float) topPos + 18)
-                .vertex((float) leftPos + 9, (float) topPos + 18)
-                .color(0.0F, 0.0F, 0.0F, color)
-                .build(guiGraphics, StarSkyRenderer.STAR_SKY);
-                //.build(guiGraphics, RenderType.endPortal());
+        if (Minecraft.getInstance().player == null) return;
 
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.depthMask(false);
+        RenderSystem.enableScissor(
+                (int) (width * 0.11f),
+                (int) (height * 0.11f),
+                (int) (width * 1.775f),
+                (int) (height * 1.75f)
+        );
+
+        float offsetX = viewportOffset.x * 0.5f;
+        float offsetY = viewportOffset.y * 0.5f;
+
+        drawParallaxFinal(guiGraphics, BACKGROUND_LAYER_1, offsetX * 0.05f, offsetY * 0.05f);
+        drawParallaxFinal(guiGraphics, BACKGROUND_LAYER_2, offsetX * 0.1f, offsetY * 0.1f);
+        drawParallaxFinal(guiGraphics, BACKGROUND_LAYER_3, offsetX * 0.2f, offsetY * 0.2f);
+        drawParallaxFinal(guiGraphics, BACKGROUND_LAYER_4, offsetX * 0.225f, offsetY * 0.225f);
+        drawParallaxFinal(guiGraphics, BACKGROUND_LAYER_5, offsetX * 0.25f, offsetY * 0.25f);
+        drawParallaxFinal(guiGraphics, BACKGROUND_LAYER_6, offsetX * 0.275f, offsetY * 0.275f);
+        drawParallaxFinal(guiGraphics, BACKGROUND_LAYER_7, offsetX * 0.3f, offsetY * 0.3f);
+
+        RenderSystem.disableScissor();
+        RenderSystem.depthMask(true);
+        RenderSystem.disableBlend();
+    }
+
+    private void drawParallaxFinal(GuiGraphics guiGraphics, ResourceLocation texture,
+                                   float offsetX, float offsetY) {
+        RenderSystem.setShaderTexture(0, texture);
+        RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
+
+        int texWidth = 1024;
+        int texHeight = 1024;
+
+        float menuX = width * 0.05f;
+        float menuY = height * 0.05f;
+        float menuW = width * 0.9f;
+        float menuH = height * 0.9f;
+
+        float scale = Math.max(menuW / texWidth, menuH / texHeight) * 1.4f;
+
+        float scaledW = texWidth * scale;
+        float scaledH = texHeight * scale;
+
+        float baseX = menuX + (menuW - scaledW) / 2;
+        float baseY = menuY + (menuH - scaledH) / 2;
+
+        float posX = baseX + offsetX;
+        float posY = baseY + offsetY;
+
+        float maxX = (scaledW - menuW) / 2;
+        float maxY = (scaledH - menuH) / 2;
+
+        posX = Mth.clamp(posX, baseX - maxX, baseX + maxX);
+        posY = Mth.clamp(posY, baseY - maxY, baseY + maxY);
+
+        guiGraphics.blit(texture,
+                (int) posX, (int) posY,
+                0, 0,
+                (int) scaledW, (int) scaledH,
+                (int) scaledW, (int) scaledH);
+
+        RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
     }
 
     private void drawNineSliceWindow(GuiGraphics guiGraphics,
@@ -431,7 +516,13 @@ public class SkillTreeScreen extends Screen {
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dx, double dy) {
         if (isDragging && button == 0) {
-            viewportOffset = new Vec2((float) (viewportOffset.x + dx), (float) (viewportOffset.y + dy));
+            float newX = viewportOffset.x + (float) dx;
+            float newY = viewportOffset.y + (float) dy;
+
+            viewportOffset = new Vec2(
+                    Mth.clamp(newX, -maxViewportOffset, maxViewportOffset),
+                    Mth.clamp(newY, -maxViewportOffset, maxViewportOffset)
+            );
             return true;
         }
         return super.mouseDragged(mouseX, mouseY, button, dx, dy);

@@ -38,7 +38,6 @@ public class PlayerSkillData {
         if (learnedSkills.contains(skillId) || !canLearn(skillId)) return false;
 
         if (!spendSkillPoints(cost)) {
-            if (player != null) AHSkillTree.LOGGER.warn("Not enough skill points for {}", skillId);
             return false;
         }
 
@@ -46,10 +45,11 @@ public class PlayerSkillData {
 
         reapplyEffects();
 
-        if (player != null) {
-            AHSkillTree.LOGGER.info("Player {} learned {}", player.getName().getString(), skillId);
-        }
         return true;
+    }
+
+    public boolean hasSkill(String skillId) {
+        return learnedSkills.contains(skillId);
     }
 
     public boolean canLearn(String skillId) {
@@ -110,6 +110,8 @@ public class PlayerSkillData {
 
     private void reapplyEffects() {
         if (player != null && !player.level().isClientSide) {
+            SkillEffectsManager.clearConditionCache(player);
+
             SkillEffectsManager.applyAllSkillEffects(player, this);
         }
     }

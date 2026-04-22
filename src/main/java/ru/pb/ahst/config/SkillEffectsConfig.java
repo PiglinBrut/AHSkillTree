@@ -9,8 +9,6 @@ import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
 import ru.pb.ahst.AHSkillTree;
-import ru.pb.ahst.effects.bonuses.BonusType;
-import ru.pb.ahst.effects.bonuses.SkillBonus;
 import ru.pb.ahst.effects.conditions.Condition;
 import ru.pb.ahst.effects.conditions.ConditionType;
 
@@ -27,7 +25,6 @@ public class SkillEffectsConfig {
     public static void init(Path configDir) {
         configPath = configDir.resolve(AHSkillTree.MOD_ID).resolve("AHSkillEffects.json");
         ConditionType.init();
-        BonusType.init();
         loadConfig();
     }
 
@@ -92,18 +89,6 @@ public class SkillEffectsConfig {
                         ConditionalEffect condEffect = parseConditionalEffect(condObj, skillId);
                         if (condEffect != null) {
                             effects.conditionalEffects.add(condEffect);
-                        }
-                    }
-                }
-
-                // НОВЫЕ БОНУСЫ (через систему BonusType)
-                if (obj.has("bonuses")) {
-                    JsonArray bonusesArray = obj.getAsJsonArray("bonuses");
-                    for (JsonElement bonusElem : bonusesArray) {
-                        JsonObject bonusObj = bonusElem.getAsJsonObject();
-                        SkillBonus bonus = BonusType.create(bonusObj, skillId);
-                        if (bonus != null) {
-                            effects.bonuses.add(bonus);
                         }
                     }
                 }
@@ -202,36 +187,15 @@ public class SkillEffectsConfig {
             JsonObject root = new JsonObject();
             JsonArray effectsArray = new JsonArray();
 
-            // Пример с новыми бонусами
-            JsonObject vampireSkill = new JsonObject();
-            vampireSkill.addProperty("skill_id", "vampiric_strike");
-            JsonArray bonuses = new JsonArray();
-
-            JsonObject lifesteal = new JsonObject();
-            lifesteal.addProperty("type", "ahst:lifesteal");
-            lifesteal.addProperty("percentage", 0.15);
-            bonuses.add(lifesteal);
-
-            vampireSkill.add("bonuses", bonuses);
-
             JsonObject conditional = new JsonObject();
             conditional.addProperty("type", "ahst:health_percentage");
             conditional.addProperty("min", 30);
 
             JsonObject conditionalEffect = new JsonObject();
             conditionalEffect.add("condition", conditional);
-            JsonArray condBonuses = new JsonArray();
-            JsonObject critBonus = new JsonObject();
-            critBonus.addProperty("type", "ahst:crit_chance");
-            critBonus.addProperty("chance", 0.30);
-            condBonuses.add(critBonus);
-            conditionalEffect.add("bonuses", condBonuses);
 
             JsonArray conditionalEffects = new JsonArray();
             conditionalEffects.add(conditionalEffect);
-            vampireSkill.add("conditional_effects", conditionalEffects);
-
-            effectsArray.add(vampireSkill);
 
             root.add("skill_effects", effectsArray);
             Files.writeString(configPath, GSON.toJson(root));
@@ -297,18 +261,6 @@ public class SkillEffectsConfig {
             }
         }
 
-        // Новый формат (bonuses)
-        if (condObj.has("bonuses")) {
-            JsonArray bonusesArray = condObj.getAsJsonArray("bonuses");
-            for (JsonElement bonusElem : bonusesArray) {
-                JsonObject bonusObj = bonusElem.getAsJsonObject();
-                SkillBonus bonus = BonusType.create(bonusObj, skillId);
-                if (bonus != null) {
-                    effect.bonuses.add(bonus);
-                }
-            }
-        }
-
         return effect;
     }
 
@@ -320,7 +272,6 @@ public class SkillEffectsConfig {
         public List<AttributeBonus> attributeBonuses = new ArrayList<>();
         public List<AttributeMultiplier> attributeMultipliers = new ArrayList<>();
         public List<ConditionalEffect> conditionalEffects = new ArrayList<>();
-        public List<SkillBonus> bonuses = new ArrayList<>(); // НОВОЕ
 
         public List<ResourceLocation> unlockedItems = new ArrayList<>();
         public List<ResourceLocation> unlockedBlocks = new ArrayList<>();
@@ -363,7 +314,6 @@ public class SkillEffectsConfig {
         public Condition condition;
         public List<AttributeBonus> attributeBonuses = new ArrayList<>();
         public List<AttributeMultiplier> attributeMultipliers = new ArrayList<>();
-        public List<SkillBonus> bonuses = new ArrayList<>(); // НОВОЕ
 
         public ConditionalEffect(Condition condition) {
             this.condition = condition;
